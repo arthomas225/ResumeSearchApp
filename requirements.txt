@@ -318,7 +318,7 @@ python-pptx==0.6.23
 python-socketio==5.11.2
 pytube==15.0.0
 pytz==2024.1
-pywin32==306
+pywin32==306; sys_platform == 'win32'
 PyYAML==6.0.1
 qdrant-client==1.9.1
 qianfan==0.3.5
