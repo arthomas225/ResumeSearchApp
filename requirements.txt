@@ -1,5 +1,5 @@
 msal==1.17.0
-office365-sharepoint==2.3.14
-scikit-learn==1.0.2
-sentence-transformers==2.2.2
-nltk==3.7
+Office365-REST-Python-Client
+scikit-learn
+sentence-transformers
+nltk
