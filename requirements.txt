@@ -70,7 +70,6 @@ docker==7.1.0
 docstring_parser==0.16
 docx2txt==0.8
 dspy-ai==2.4.9
-duckdb==1.0.1.dev167
 e2b==0.17.1
 e2b-code-interpreter==0.0.10
 easygui==0.98.3
