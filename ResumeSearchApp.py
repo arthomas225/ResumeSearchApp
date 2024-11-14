@@ -77,9 +77,9 @@ if __name__ == '__main__':
     # Replace with your SharePoint credentials
     site_url = 'https://longeneckerassociates.sharepoint.com/sites/ProjectDelivery'
     library_name = 'RESUMES'
-    client_id = 'your_client_id'
-    client_secret = 'your_client_secret'
-    tenant_id = 'your_tenant_id'
+    client_id = '84ddfec2-a90a-400c-9199-b48b39f0800e'
+    client_secret = 't1T8Q~4QSlHwQRpK7B5VY_O9OQcV-ghDJjGJycVx'
+    tenant_id = '4be01dc8-5435-4822-9c79-139bcbc5f6fa'
 
     # Authenticate and initialize SharePoint context
     ctx = authenticate_sharepoint(site_url, client_id, client_secret, tenant_id)
