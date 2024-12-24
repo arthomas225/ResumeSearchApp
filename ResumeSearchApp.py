@@ -1,91 +1,103 @@
-import msal
-from office365.sharepoint.client_context import ClientContext
+import streamlit as st
+import json
+import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from sentence_transformers import SentenceTransformer
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
-import nltk
-import re
+import logging
 
-# Download NLTK data (only need to run once)
-nltk.download('stopwords')
-nltk.download('wordnet')
+# Setup logging for debugging
+logging.basicConfig(level=logging.DEBUG)
 
-# Initialize model for sentence embeddings
-model = SentenceTransformer('all-MiniLM-L6-v2')
+def calculate_cosine_similarity(query_embedding, doc_embedding):
+    """
+    Calculate cosine similarity between query and document embeddings.
+    """
+    return float(cosine_similarity([query_embedding], [doc_embedding])[0][0])
 
-# Initialize NLTK tools
-stop_words = set(stopwords.words('english'))
-lemmatizer = WordNetLemmatizer()
-
-# Authenticate and connect to SharePoint
-def authenticate_sharepoint(site_url, client_id, client_secret, tenant_id):
-    authority_url = f'https://login.microsoftonline.com/{tenant_id}'
-    app = msal.ConfidentialClientApplication(client_id=client_id, client_credential=client_secret, authority=authority_url)
-    result = app.acquire_token_for_client(scopes=[f'{site_url}/.default'])
-
-    if 'access_token' in result:
-        access_token = result['access_token']
-        ctx = ClientContext(site_url).with_access_token(access_token)
-        print("Successfully authenticated to SharePoint.")
-        return ctx
-    else:
-        raise Exception("Authentication failed.")
-
-# Read and preprocess text from a SharePoint document
-def get_document_text(file_url, ctx):
+@st.cache_resource
+def load_model():
+    """
+    Placeholder for loading the model. Replace with actual model loading if needed.
+    """
     try:
-        response = ctx.web.get_file_by_server_relative_url(file_url).download().execute_query()
-        content = response.content.decode('utf-8')
-        return preprocess_text(content)
-    except Exception as e:
-        print(f"Error retrieving file: {e}")
+        from sentence_transformers import SentenceTransformer
+        return SentenceTransformer("all-MiniLM-L6-v2")
+    except ImportError:
+        st.error("SentenceTransformer not installed.")
         return None
 
-# Text preprocessing function
-def preprocess_text(text):
-    text = text.lower()
-    tokens = re.findall(r'\b\w+\b', text)
-    tokens = [word for word in tokens if word not in stop_words]
-    lemmas = [lemmatizer.lemmatize(token) for token in tokens]
-    return ' '.join(lemmas)
+# Initialize Streamlit app
+st.title("Streamlined Resume Matcher")
 
-# Cosine similarity search function
-def search_resumes(ctx, library_name, query, top_n=5):
-    query_embedding = model.encode(preprocess_text(query))
-    library = ctx.web.lists.get_by_title(library_name)
-    files = library.root_folder.files
-    ctx.load(files)
-    ctx.execute_query()
+# Load the model
+model = load_model()
+if model is None:
+    st.stop()
 
-    resume_scores = []
-    for file in files:
-        file_url = file.serverRelativeUrl
-        resume_text = get_document_text(file_url, ctx)
-        if resume_text:
-            resume_embedding = model.encode(resume_text)
-            similarity = cosine_similarity([query_embedding], [resume_embedding])[0][0]
-            resume_scores.append((file.name, similarity))
+def process_resumes(uploaded_files):
+    """
+    Process uploaded JSON files and return resume data.
+    """
+    combined_data = {}
+    for uploaded_file in uploaded_files:
+        try:
+            data = json.load(uploaded_file)
+            if "resumes" in data:
+                combined_data.update(data["resumes"])
+                st.success(f"File '{uploaded_file.name}' uploaded successfully!")
+            else:
+                st.warning(f"No 'resumes' key found in {uploaded_file.name}. Skipping.")
+        except json.JSONDecodeError as e:
+            st.error(f"Error parsing {uploaded_file.name}: {e}")
+    return combined_data
 
-    ranked_resumes = sorted(resume_scores, key=lambda x: x[1], reverse=True)[:top_n]
-    print("Top matching resumes:")
-    for idx, (name, score) in enumerate(ranked_resumes, start=1):
-        print(f"{idx}. {name} - Similarity: {score:.2f}")
+def extract_snippet(resume_text, query_text):
+    """
+    Extract a snippet from the resume text that matches the query.
+    """
+    query_words = set(query_text.lower().split())
+    sentences = resume_text.split('. ')
+    for sentence in sentences:
+        if any(word in sentence.lower() for word in query_words):
+            return sentence.strip() + '.'
+    return "No relevant snippet found."
 
-# Main function to execute the search
-if __name__ == '__main__':
-    # Replace with your SharePoint credentials
-    site_url = 'https://longeneckerassociates.sharepoint.com/sites/ProjectDelivery'
-    library_name = 'RESUMES'
-    client_id = '84ddfec2-a90a-400c-9199-b48b39f0800e'
-    client_secret = 't1T8Q~4QSlHwQRpK7B5VY_O9OQcV-ghDJjGJycVx'
-    tenant_id = '4be01dc8-5435-4822-9c79-139bcbc5f6fa'
+def compute_match_scores(data, query_text):
+    """
+    Compute match scores for each resume based on the query.
+    """
+    query_embedding = model.encode(query_text) if query_text.strip() else None
+    matches = []
+    if query_embedding is not None:
+        for name, resume_data in data.items():
+            try:
+                doc_embedding = model.encode(resume_data["full_text"])
+                score = calculate_cosine_similarity(query_embedding, doc_embedding)
+                snippet = extract_snippet(resume_data["full_text"], query_text)
+                matches.append((name, score, snippet))
+            except Exception as e:
+                st.warning(f"Failed to process resume '{name}': {e}")
+    return sorted(matches, key=lambda x: x[1], reverse=True)
 
-    # Authenticate and initialize SharePoint context
-    ctx = authenticate_sharepoint(site_url, client_id, client_secret, tenant_id)
+# Upload and process JSON files
+uploaded_files = st.file_uploader("Upload Resume JSON Files (maximum size: 200MB)", type="json", accept_multiple_files=True)
+data = {}
 
-    # Define your search query
-    query = "Looking for candidates with experience in project management and data analytics."
+if uploaded_files:
+    data = process_resumes(uploaded_files)
+    st.session_state.data = data
 
-    # Perform cosine similarity search
-    search_resumes(ctx, library_name, query, top_n=5)
+# Search interface
+if "data" in st.session_state and st.session_state.data:
+    query_text = st.text_area("Enter a query to find matching resumes:", placeholder="e.g., Python developer with SQL experience")
+
+    if st.button("Search"):
+        matches = compute_match_scores(st.session_state.data, query_text)
+
+        if matches:
+            st.header("Matching Resumes")
+            for name, score, snippet in matches:
+                st.write(f"### {name}")
+                st.write(f"**Match Score:** {score:.2f}")
+                st.write(f"**Snippet:** {snippet}")
+        else:
+            st.warning("No matches found.")
